@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Custom Map Picks & Veto Website</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700&display=swap');
+body {
+  font-family: 'Nunito', sans-serif;
+  background: linear-gradient(135deg, #ffe6f2, #d6f0ff, #e6ffda);
+  background-size: 400% 400%;
+  animation: gradientShift 20s ease infinite;
+  margin: 0; padding: 20px; color: #222; text-align: center;
+}
+@keyframes gradientShift {0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+h1 { font-size: 2.5rem; margin-bottom: 10px; color: #333; text-shadow: 1px 1px 4px #fff; }
+.teams input, .teams select {
+  padding: 10px 15px; border-radius: 20px; border: 2px solid #ccc; outline: none; font-size: 1rem; margin: 5px;
+  transition: 0.2s;
+}
+.teams input:focus, .teams select:focus { border-color: #ff9f80; box-shadow: 0 0 10px rgba(255,159,128,0.5); }
+button {
+  padding: 10px 18px; border-radius: 20px; border: none; cursor: pointer; font-weight: bold;
+  margin: 5px; background: #ff9f80; color: white; font-size: 1rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  transition: 0.25s;
+}
+button:hover { transform: scale(1.1); background: #ff6b6b; }
+.map-pool { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; margin: 20px 0; }
+.map {
+  position: relative;
+  padding: 20px; width: 130px; border-radius: 20px;
+  background: #fff8f0; box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+  font-weight: bold; cursor: pointer; transition: transform 0.25s, box-shadow 0.25s, background 0.3s;
+  animation: bubbleIn 0.4s ease;
+}
+.map:hover { transform: scale(1.1); box-shadow: 0 8px 16px rgba(0,0,0,0.25); }
+.remove-btn {
+  position: absolute; top: 6px; right: 8px; width: 18px; height: 18px;
+  border: none; background: transparent; color: black; font-weight: bold; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+}
+.remove-btn:hover { color: red; }
+.banned { background: #ff4d4d !important; color: white; transform: scale(0.95); }
+.picked { background: #4dff88 !important; color: white; transform: scale(1.05); }
+.decider { background: #4da6ff !important; color: white; transform: scale(1.05); }
+@keyframes bubbleIn {0%{transform:scale(0.6);opacity:0}70%{transform:scale(1.1);opacity:1}100%{transform:scale(1);}}
+#status { font-weight: bold; font-size: 1.2rem; margin: 15px; }
+#results { margin-top: 20px; padding: 15px; border-radius: 12px; background: #ffffffcc; display: inline-block; text-align:left; box-shadow: 0 4px 10px rgba(0,0,0,0.2);}
+</style>
+</head>
+<body>
+<h1>Custom Map Picks & Veto Website</h1>
+
+<div class="teams">
+  <input type="text" id="teamA" placeholder="Team A Captain">
+  <input type="text" id="teamB" placeholder="Team B Captain">
+  <select id="mode">
+    <option value="1">BO1</option>
+    <option value="3" selected>BO3</option>
+    <option value="5">BO5</option>
+  </select>
+  <button onclick="startVeto()">Start Veto</button>
+</div>
+
+<div class="map-pool" id="mapPool"></div>
+
+<div class="controls">
+  <input type="text" id="newMap" placeholder="New Map Name">
+  <button id="addBtn" onclick="addMap()">➕ Add Map</button>
+  <button id="removeAllBtn" onclick="removeAllMaps()">🗑 Remove All Maps</button>
+</div>
+
+<div id="status">Enter team names and click Start!</div>
+<div id="results"></div>
+
+<script>
+let mapPool = ["Sandstorm","Workshop","Ruins","Cove","Frontier","Dust","Hearth"];
+let actions=[], order=[], step=-1;
+let teamA="Team A", teamB="Team B";
+let mode = 3;
+
+function renderMaps(){
+  const container=document.getElementById("mapPool");
+  container.innerHTML="";
+  mapPool.forEach(m=>{
+    const div=document.createElement("div");
+    div.className="map"; div.innerText=m;
+    const rm=document.createElement("button");
+    rm.className="remove-btn"; rm.innerText="×";
+    rm.onclick=e=>{e.stopPropagation(); removeMap(m);};
+    div.appendChild(rm);
+    div.onclick=()=>{selectMap(m,div);}
+    container.appendChild(div);
+  });
+}
+
+function addMap(){
+  const name=document.getElementById("newMap").value.trim();
+  if(name && !mapPool.includes(name)){mapPool.push(name); renderMaps(); document.getElementById("newMap").value="";}
+}
+function removeMap(map){mapPool=mapPool.filter(m=>m!==map); renderMaps();}
+function removeAllMaps(){mapPool=[]; renderMaps();}
+
+function startVeto(){
+  teamA=document.getElementById("teamA").value||"Team A";
+  teamB=document.getElementById("teamB").value||"Team B";
+  mode=parseInt(document.getElementById("mode").value);
+  actions=[]; order=[]; step=0;
+  document.getElementById("status").innerText=(mode===3)?`${teamA}, ban a map.`:(mode===5?`${teamA}, ban a map.`:`${teamA}, ban a map (BO1).`);
+  renderMaps();
+  document.getElementById("newMap").disabled=true;
+  document.getElementById("addBtn").disabled=true;
+  document.getElementById("removeAllBtn").disabled=true;
+}
+
+function selectMap(map,element){
+  if(step===-1 || element.classList.contains("banned") || element.classList.contains("picked") || element.classList.contains("decider")) return;
+
+  if(mode===3){ handleBO3(map, element);}
+  else if(mode===1){ handleBO1(map, element);}
+  else if(mode===5){ handleBO5(map, element);}
+
+  updateResults();
+}
+
+function handleBO1(map, element){
+  // Alternate bans between teams
+  const currentTeam = (step % 2 === 0) ? teamA : teamB;
+  element.classList.add("banned");
+  actions.push(`${currentTeam} banned ${map}`);
+  step++;
+
+  const remaining=mapPool.filter(m=>{
+    const divs=document.querySelectorAll(".map");
+    for(let d of divs) if(d.innerText.includes(m) && !d.classList.contains("banned")) return true;
+    return false;
+  });
+
+  if(remaining.length===1){
+    const decider=remaining[0];
+    const divs=document.querySelectorAll(".map");
+    divs.forEach(d=>{if(d.innerText.includes(decider)) d.classList.add("decider");});
+    actions.push(`Decider map: ${decider}`);
+    order.push(decider);
+    document.getElementById("status").innerText=`BO1 decider: ${decider}`;
+    step=-1;
+  } else {
+    const nextTeam = (step % 2 === 0) ? teamA : teamB;
+    document.getElementById("status").innerText=`${nextTeam}, ban a map.`;
+  }
+}
+
+function handleBO3(map, element){
+  if(step===0){element.classList.add("banned"); actions.push(`${teamA} banned ${map}`); step=1; document.getElementById("status").innerText=`${teamB}, ban a map.`;}
+  else if(step===1){element.classList.add("banned"); actions.push(`${teamB} banned ${map}`); step=2; document.getElementById("status").innerText=`${teamA}, pick a map.`;}
+  else if(step===2){element.classList.add("picked"); actions.push(`${teamA} picked ${map}`); order.push(map); step=3; document.getElementById("status").innerText=`${teamB}, pick a map.`;}
+  else if(step===3){element.classList.add("picked"); actions.push(`${teamB} picked ${map}`); order.push(map); step=4; document.getElementById("status").innerText=`${teamA}, ban a map.`;}
+  else if(step===4){element.classList.add("banned"); actions.push(`${teamA} banned ${map}`); step=5; document.getElementById("status").innerText=`${teamB}, ban a map.`;}
+  else if(step===5){element.classList.add("banned"); actions.push(`${teamB} banned ${map}`); step=6; setDecider();}
+}
+
+function handleBO5(map, element){
+  if(step===0){element.classList.add("banned"); actions.push(`${teamA} banned ${map}`); step=1; document.getElementById("status").innerText=`${teamB}, ban a map.`;}
+  else if(step===1){element.classList.add("banned"); actions.push(`${teamB} banned ${map}`); step=2; document.getElementById("status").innerText=`${teamA}, pick a map.`;}
+  else if(step===2){element.classList.add("picked"); actions.push(`${teamA} picked ${map}`); order.push(map); step=3; document.getElementById("status").innerText=`${teamB}, pick a map.`;}
+  else if(step===3){element.classList.add("picked"); actions.push(`${teamB} picked ${map}`); order.push(map); step=4; document.getElementById("status").innerText=`${teamA}, ban a map.`;}
+  else if(step===4){element.classList.add("banned"); actions.push(`${teamA} banned ${map}`); step=5; document.getElementById("status").innerText=`${teamB}, ban a map.`;}
+  else if(step===5){element.classList.add("banned"); actions.push(`${teamB} banned ${map}`); step=6; document.getElementById("status").innerText=`${teamA}, pick a map.`;}
+  else if(step===6){element.classList.add("picked"); actions.push(`${teamA} picked ${map}`); order.push(map); step=7; document.getElementById("status").innerText=`${teamB}, pick a map.`;}
+  else if(step===7){element.classList.add("picked"); actions.push(`${teamB} picked ${map}`); order.push(map); step=8; setDecider();}
+}
+
+function setDecider(){
+  const divs=document.querySelectorAll(".map");
+  const remaining=mapPool.filter(m=>{
+    for(let d of divs) if(d.innerText.includes(m) && !d.classList.contains("picked") && !d.classList.contains("banned")) return true;
+    return false;
+  });
+  if(remaining.length===1){
+    const decider=remaining[0];
+    divs.forEach(d=>{if(d.innerText.includes(decider)) d.classList.add("decider");});
+    actions.push(`Decider map: ${decider}`);
+    order.push(decider);
+    document.getElementById("status").innerText="✅ Veto complete!";
+  }
+}
+
+function updateResults(){
+  document.getElementById("results").innerHTML=
+    `<strong>Actions:</strong><br>${actions.join("<br>")}<br><br><strong>Map Order:</strong><br>${order.map((m,i)=>`Map ${i+1}: ${m}`).join("<br>")}`;
+}
+
+renderMaps();
+</script>
+</body>
+</html>
